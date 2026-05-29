@@ -46,15 +46,9 @@ modo = st.sidebar.radio("Módulo de Trabajo:", ["Operario (Carga de Conteo)", "S
 
 if modo == "Operario (Carga de Conteo)":
     st.title("📱 Captura de Inventario en Campo")
-    
-    c_hdr1, c_hdr2 = st.columns([1, 2])
-    with c_hdr1:
-        contador = st.text_input("Nombre del Operario:", placeholder="Ej: Joel Suarez").strip()
-    with c_hdr2:
-        comentarios_gen = st.text_input("Observaciones de Inicio (Opcional):", placeholder="Ej: Pasillo 4")
-    
     st.markdown("---")
     
+    # Buscador dinámico (queda afuera del formulario para que sea reactivo)
     buscar = st.text_input("🔍 Buscar por Material, Descripción o Sector (Escriba para filtrar):", value="")
     
     if buscar:
@@ -71,14 +65,23 @@ if modo == "Operario (Carga de Conteo)":
                 if st.button(f"📦 {row['Material']} | {row['Descripcion']} | Sector: {row['Sector']}", key=f"item_{idx}"):
                     st.session_state.item_seleccionado = row.to_dict()
         else:
-            st.warning("No se encontraron coincidencias.")
+            st.warning("No se encontraron coincidencia en el maestro.")
 
+    # FORMULARIO UNIFICADO
     if "item_seleccionado" in st.session_state:
         item = st.session_state.item_seleccionado
         st.markdown(f"### Artículo Seleccionado: `{item['Material']}`")
         st.info(f"**Descripción:** {item['Descripcion']}  \n**Sector Teórico:** {item['Sector']}")
         
         with st.form("form_transmision", clear_on_submit=True):
+            # Traemos los datos del operario ADENTRO del formulario para asegurar su captura
+            c_hdr1, c_hdr2 = st.columns([1, 2])
+            with c_hdr1:
+                contador = st.text_input("Nombre del Operario:", placeholder="Ej: Joel Suarez").strip()
+            with c_hdr2:
+                comentarios_gen = st.text_input("Observaciones de Inicio (Opcional):", placeholder="Ej: Pasillo 4").strip()
+            
+            st.markdown("---")
             col1, col2, col3 = st.columns(3)
             with col1:
                 cantidad = st.number_input("Cantidad Física Contada (Solo Enteros):", min_value=0, step=1, value=0)
@@ -87,26 +90,26 @@ if modo == "Operario (Carga de Conteo)":
             with col3:
                 etiqueta = st.text_input("Número de Etiqueta (Mandatorio):").strip()
                 
-            obs = st.text_area("Notas / Desvíos específicos:")
+            obs = st.text_area("Notas / Desvíos específicos:").strip()
             
             if st.form_submit_button("🚀 Transmitir Registro a la Nube"):
+                # Validación estricta con strings limpios
                 if not contador or not lote or not etiqueta:
                     st.error("Error: Nombre, Lote y Etiqueta son campos mandatorios obligatorios.")
                 else:
                     try:
-                        # SOLUCIÓN CRÍTICA 2: Castear explícitamente a tipos nativos compatibles con JSON (str, int)
                         payload = {
-                        "contador": str(contador),
-                        "comentarios_generales": str(comentarios_gen) if comentarios_gen else "",
-                        "material": str(item["Material"]),
-                        "descripcion": str(item["Descripcion"]) if item["Descripcion"] else "",
-                        "sector": str(item["Sector"]) if item["Sector"] else "",
-                        "cantidad_contada": int(cantidad),
-                        "lote": str(lote),
-                        "numero_etiqueta": str(etiqueta),
-                        "observaciones": str(obs) if obs else "",  # <--- CORREGIDO ACÁ
-                        "tipo": "CONTEO"
-                    }
+                            "contador": str(contador),
+                            "comentarios_generales": str(comentarios_gen),
+                            "material": str(item["Material"]),
+                            "descripcion": str(item["Descripcion"]),
+                            "sector": str(item["Sector"]),
+                            "cantidad_contada": int(cantidad),
+                            "lote": str(lote),
+                            "numero_etiqueta": str(etiqueta),
+                            "observaciones": str(obs),
+                            "tipo": "CONTEO"
+                        }
                         supabase.table("conteos_inventario").insert(payload).execute()
                         st.success(f"✓ Conteo de {item['Material']} subido con éxito.")
                         del st.session_state.item_seleccionado
