@@ -6,8 +6,6 @@ import uuid
 st.set_page_config(page_title="Sistema de Inventario Daimler", layout="wide", initial_sidebar_state="expanded")
 
 # --- CREDENCIALES DE SUPABASE DESDE SECRETS ---
-import streamlit as st
-
 try:
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
     SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
@@ -54,7 +52,9 @@ if modo == "Operario (Carga de Conteo)":
         comentarios_gen = st.text_input("Observaciones de Inicio (Opcional):", placeholder="Ej: Pasillo 4")
     
     st.markdown("---")
-    buscar = st.text_input("🔍 Buscar por Material, Descripción o Sector:")
+    
+    # BÚSQUEDA EN TIEMPO REAL: Cada letra ejecutada filtra el dataframe sin requerir ENTER
+    buscar = st.text_input("🔍 Buscar por Material, Descripción o Sector (Escriba para filtrar):", value="")
     
     if buscar:
         buscar_clean = buscar.strip().lower()
@@ -65,21 +65,25 @@ if modo == "Operario (Carga de Conteo)":
         ].head(5)
         
         if not filtrado.empty:
-            st.write("**Resultados encontrados:**")
+            st.write("**Coincidencias en tiempo real:**")
             for idx, row in filtrado.iterrows():
+                # Al hacer clic en el botón, se fija en session_state el item seleccionado
                 if st.button(f"📦 {row['Material']} | {row['Descripcion']} | Sector: {row['Sector']}", key=f"item_{idx}"):
                     st.session_state.item_seleccionado = row.to_dict()
         else:
-            st.warning("No se encontraron coicidencias.")
+            st.warning("No se encontraron coincidencias.")
 
+    # FORMULARIO DE CONTEO MODIFICADO (SOLO ENTEROS)
     if "item_seleccionado" in st.session_state:
         item = st.session_state.item_seleccionado
         st.markdown(f"### Artículo Seleccionado: `{item['Material']}`")
+        st.info(f"**Descripción:** {item['Descripcion']}  \n**Sector Teórico:** {item['Sector']}")
         
         with st.form("form_transmision", clear_on_submit=True):
             col1, col2, col3 = st.columns(3)
             with col1:
-                cantidad = st.number_input("Cantidad Física Contada:", min_value=0.0, step=1.0, value=0.0)
+                # min_value=0, step=1 e int garantizan restricciones estrictas a nivel numérico entero
+                cantidad = st.number_input("Cantidad Física Contada (Solo Enteros):", min_value=0, step=1, value=0)
             with col2:
                 lote = st.text_input("Número de Lote (Mandatorio):").strip()
             with col3:
@@ -89,7 +93,7 @@ if modo == "Operario (Carga de Conteo)":
             
             if st.form_submit_button("🚀 Transmitir Registro a la Nube"):
                 if not contador or not lote or not etiqueta:
-                    st.error("Error: Nombre, Lote y Etiqueta son obligatorios.")
+                    st.error("Error: Nombre, Lote y Etiqueta son campos mandatorios obligatorios.")
                 else:
                     try:
                         payload = {
@@ -98,18 +102,18 @@ if modo == "Operario (Carga de Conteo)":
                             "material": str(item["Material"]),
                             "descripcion": item["Descripcion"],
                             "sector": item["Sector"],
-                            "cantidad_contada": cantidad,
+                            "cantidad_contada": int(cantidad), # Forzar casteo a Integer entero antes de persistir
                             "lote": lote,
                             "numero_etiqueta": etiqueta,
                             "observaciones": obs,
                             "tipo": "CONTEO"
                         }
                         supabase.table("conteos_inventario").insert(payload).execute()
-                        st.success(f"✓ Conteo subido con éxito.")
+                        st.success(f"✓ Conteo de {item['Material']} subido con éxito.")
                         del st.session_state.item_seleccionado
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Fallo en Supabase: {e}")
+                        st.error(f"Fallo en la base de datos: {e}")
 
     st.markdown("---")
     st.subheader("⚠️ Registro de Artículo No Encontrado")
@@ -119,7 +123,7 @@ if modo == "Operario (Carga de Conteo)":
         
         if st.form_submit_button("Guardar Alerta de No Encontrado"):
             if not contador or not desc_no or not foto:
-                st.error("Error: Todos los campos son mandatorios.")
+                st.error("Error: Todos los campos son obligatorios.")
             else:
                 try:
                     ext = foto.name.split(".")[-1]
@@ -140,6 +144,7 @@ if modo == "Operario (Carga de Conteo)":
                     st.error(f"Error: {e}")
 
 else:
+    # --- MÓDULO SUPERVISOR ---
     st.title("📊 Consola Central (Tiempo Real)")
     try:
         records = supabase.table("conteos_inventario").select("*").order("timestamp", desc=True).execute().data
@@ -170,6 +175,10 @@ else:
             
         order_cols = ["timestamp", "contador", "material", "descripcion", "sector", "cantidad_contada", "lote", "numero_etiqueta", "observaciones", "tipo", "foto_url"]
         df_final = df_realtime[[c for c in order_cols if c in df_realtime.columns]]
+        
+        # Guardar conteos numéricos como enteros en el Excel final para evitar decimales molestos (.0)
+        if "cantidad_contada" in df_final.columns:
+            df_final["cantidad_contada"] = df_final["cantidad_contada"].astype(int)
         
         csv_bytes = df_final.to_csv(index=False, sep=";", encoding="utf-8-sig").encode('utf-8-sig')
         st.download_button(label="🟢 Descargar Consolidado Excel (.csv)", data=csv_bytes, file_name="Inventario_Daimler.csv", mime="text/csv")
