@@ -96,17 +96,17 @@ if modo == "Operario (Carga de Conteo)":
                     try:
                         # SOLUCIÓN CRÍTICA 2: Castear explícitamente a tipos nativos compatibles con JSON (str, int)
                         payload = {
-                            "contador": str(contador),
-                            "comentarios_generales": str(comentarios_gen) if comentarios_gen else "",
-                            "material": str(item["Material"]),
-                            "descripcion": str(item["Descripcion"]) if item["Descripcion"] else "",
-                            "sector": str(item["Sector"]) if item["Sector"] else "",
-                            "cantidad_contada": int(cantidad),
-                            "lote": str(lote),
-                            "numero_etiqueta": str(etiqueta),
-                            "observations": str(obs) if obs else "",
-                            "tipo": "CONTEO"
-                        }
+                        "contador": str(contador),
+                        "comentarios_generales": str(comentarios_gen) if comentarios_gen else "",
+                        "material": str(item["Material"]),
+                        "descripcion": str(item["Descripcion"]) if item["Descripcion"] else "",
+                        "sector": str(item["Sector"]) if item["Sector"] else "",
+                        "cantidad_contada": int(cantidad),
+                        "lote": str(lote),
+                        "numero_etiqueta": str(etiqueta),
+                        "observaciones": str(obs) if obs else "",  # <--- CORREGIDO ACÁ
+                        "tipo": "CONTEO"
+                    }
                         supabase.table("conteos_inventario").insert(payload).execute()
                         st.success(f"✓ Conteo de {item['Material']} subido con éxito.")
                         del st.session_state.item_seleccionado
@@ -131,18 +131,18 @@ if modo == "Operario (Carga de Conteo)":
                     foto_url = supabase.storage.from_("fotos").get_public_url(uuid_name)
                     
                     payload = {
-                        "contador": str(contador), 
-                        "comentarios_generales": str(comentarios_gen) if comentarios_gen else "",
-                        "material": "N/A", 
-                        "descripcion": "No encontrado", 
-                        "sector": "N/A",
-                        "cantidad_contada": 0, 
-                        "lote": "N/A", 
-                        "numero_etiqueta": "N/A",
-                        "observations": str(desc_no), 
-                        "tipo": "NO_ENCONTRADO", 
-                        "foto_url": str(foto_url)
-                    }
+                    "contador": str(contador), 
+                    "comentarios_generales": str(comentarios_gen) if comentarios_gen else "",
+                    "material": "N/A", 
+                    "descripcion": "No encontrado", 
+                    "sector": "N/A",
+                    "cantidad_contada": 0, 
+                    "lote": "N/A", 
+                    "numero_etiqueta": "N/A",
+                    "observaciones": str(desc_no),  # <--- CORREGIDO ACÁ
+                    "tipo": "NO_ENCONTRADO", 
+                    "foto_url": str(foto_url)
+                }
                     supabase.table("conteos_inventario").insert(payload).execute()
                     st.success("✓ Reporte enviado a la nube.")
                     st.rerun()
