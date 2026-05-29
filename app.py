@@ -31,6 +31,8 @@ def cargar_maestro():
         if res.data:
             df = pd.DataFrame(res.data)
             df.columns = [c.capitalize() for c in df.columns]
+            # SOLUCIÓN CRÍTICA 1: Eliminar cualquier NaN del dataframe transformándolo en string vacío
+            df = df.fillna("")
             return df
         return pd.DataFrame(columns=["Material", "Descripcion", "Sector", "Cantidad_teorica"])
     except Exception as e:
@@ -53,7 +55,6 @@ if modo == "Operario (Carga de Conteo)":
     
     st.markdown("---")
     
-    # BÚSQUEDA EN TIEMPO REAL: Cada letra ejecutada filtra el dataframe sin requerir ENTER
     buscar = st.text_input("🔍 Buscar por Material, Descripción o Sector (Escriba para filtrar):", value="")
     
     if buscar:
@@ -67,13 +68,11 @@ if modo == "Operario (Carga de Conteo)":
         if not filtrado.empty:
             st.write("**Coincidencias en tiempo real:**")
             for idx, row in filtrado.iterrows():
-                # Al hacer clic en el botón, se fija en session_state el item seleccionado
                 if st.button(f"📦 {row['Material']} | {row['Descripcion']} | Sector: {row['Sector']}", key=f"item_{idx}"):
                     st.session_state.item_seleccionado = row.to_dict()
         else:
             st.warning("No se encontraron coincidencias.")
 
-    # FORMULARIO DE CONTEO MODIFICADO (SOLO ENTEROS)
     if "item_seleccionado" in st.session_state:
         item = st.session_state.item_seleccionado
         st.markdown(f"### Artículo Seleccionado: `{item['Material']}`")
@@ -82,7 +81,6 @@ if modo == "Operario (Carga de Conteo)":
         with st.form("form_transmision", clear_on_submit=True):
             col1, col2, col3 = st.columns(3)
             with col1:
-                # min_value=0, step=1 e int garantizan restricciones estrictas a nivel numérico entero
                 cantidad = st.number_input("Cantidad Física Contada (Solo Enteros):", min_value=0, step=1, value=0)
             with col2:
                 lote = st.text_input("Número de Lote (Mandatorio):").strip()
@@ -96,16 +94,17 @@ if modo == "Operario (Carga de Conteo)":
                     st.error("Error: Nombre, Lote y Etiqueta son campos mandatorios obligatorios.")
                 else:
                     try:
+                        # SOLUCIÓN CRÍTICA 2: Castear explícitamente a tipos nativos compatibles con JSON (str, int)
                         payload = {
-                            "contador": contador,
-                            "comentarios_generales": comentarios_gen,
+                            "contador": str(contador),
+                            "comentarios_generales": str(comentarios_gen) if comentarios_gen else "",
                             "material": str(item["Material"]),
-                            "descripcion": item["Descripcion"],
-                            "sector": item["Sector"],
-                            "cantidad_contada": int(cantidad), # Forzar casteo a Integer entero antes de persistir
-                            "lote": lote,
-                            "numero_etiqueta": etiqueta,
-                            "observaciones": obs,
+                            "descripcion": str(item["Descripcion"]) if item["Descripcion"] else "",
+                            "sector": str(item["Sector"]) if item["Sector"] else "",
+                            "cantidad_contada": int(cantidad),
+                            "lote": str(lote),
+                            "numero_etiqueta": str(etiqueta),
+                            "observations": str(obs) if obs else "",
                             "tipo": "CONTEO"
                         }
                         supabase.table("conteos_inventario").insert(payload).execute()
@@ -132,10 +131,17 @@ if modo == "Operario (Carga de Conteo)":
                     foto_url = supabase.storage.from_("fotos").get_public_url(uuid_name)
                     
                     payload = {
-                        "contador": contador, "comentarios_generales": comentarios_gen,
-                        "material": "N/A", "descripcion": "No encontrado", "sector": "N/A",
-                        "cantidad_contada": 0, "lote": "N/A", "numero_etiqueta": "N/A",
-                        "observaciones": desc_no, "tipo": "NO_ENCONTRADO", "foto_url": foto_url
+                        "contador": str(contador), 
+                        "comentarios_generales": str(comentarios_gen) if comentarios_gen else "",
+                        "material": "N/A", 
+                        "descripcion": "No encontrado", 
+                        "sector": "N/A",
+                        "cantidad_contada": 0, 
+                        "lote": "N/A", 
+                        "numero_etiqueta": "N/A",
+                        "observations": str(desc_no), 
+                        "tipo": "NO_ENCONTRADO", 
+                        "foto_url": str(foto_url)
                     }
                     supabase.table("conteos_inventario").insert(payload).execute()
                     st.success("✓ Reporte enviado a la nube.")
@@ -173,10 +179,9 @@ else:
         if filt_user: df_realtime = df_realtime[df_realtime["contador"].isin(filt_user)]
         if filt_tipo: df_realtime = df_realtime[df_realtime["tipo"].isin(filt_tipo)]
             
-        order_cols = ["timestamp", "contador", "material", "descripcion", "sector", "cantidad_contada", "lote", "numero_etiqueta", "observaciones", "tipo", "foto_url"]
+        order_cols = ["timestamp", "contador", "material", "descripcion", "sector", "cantidad_contada", "lote", "numero_etiqueta", "observations", "tipo", "foto_url"]
         df_final = df_realtime[[c for c in order_cols if c in df_realtime.columns]]
         
-        # Guardar conteos numéricos como enteros en el Excel final para evitar decimales molestos (.0)
         if "cantidad_contada" in df_final.columns:
             df_final["cantidad_contada"] = df_final["cantidad_contada"].astype(int)
         
