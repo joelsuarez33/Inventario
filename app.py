@@ -48,7 +48,25 @@ if modo == "Operario (Carga de Conteo)":
     st.title("📱 Captura de Inventario en Campo")
     st.markdown("---")
     
-    # Buscador dinámico (queda afuera del formulario para que sea reactivo)
+    # --- BLOQUE FIJO: Datos del Operario y Sector (Persistentes) ---
+    st.subheader("👤 Datos de Control (Fijos para la sesión)")
+    
+    # Inicializar las variables en session_state si no existen
+    if "op_nombre" not in st.session_state:
+        st.session_state.op_nombre = ""
+    if "op_comentarios" not in st.session_state:
+        st.session_state.op_comentarios = ""
+        
+    c_hdr1, c_hdr2 = st.columns([1, 2])
+    with c_hdr1:
+        # Al asignar key="op_nombre", el valor queda fijo en memoria
+        contador = st.text_input("Nombre del Operario:", key="op_nombre", placeholder="Ej: Joel Suarez").strip()
+    with c_hdr2:
+        comentarios_gen = st.text_input("Observaciones de Inicio / Sector (Opcional):", key="op_comentarios", placeholder="Ej: Pasillo 4").strip()
+    
+    st.markdown("---")
+    
+    # Buscador dinámico (reactivo)
     buscar = st.text_input("🔍 Buscar por Material, Descripción o Sector (Escriba para filtrar):", value="")
     
     if buscar:
@@ -65,23 +83,17 @@ if modo == "Operario (Carga de Conteo)":
                 if st.button(f"📦 {row['Material']} | {row['Descripcion']} | Sector: {row['Sector']}", key=f"item_{idx}"):
                     st.session_state.item_seleccionado = row.to_dict()
         else:
-            st.warning("No se encontraron coincidencia en el maestro.")
+            st.warning("No se encontraron coincidencias en el maestro.")
 
-    # FORMULARIO UNIFICADO
+    # FORMULARIO VARIABLES DEL ÍTEM
     if "item_seleccionado" in st.session_state:
         item = st.session_state.item_seleccionado
         st.markdown(f"### Artículo Seleccionado: `{item['Material']}`")
         st.info(f"**Descripción:** {item['Descripcion']}  \n**Sector Teórico:** {item['Sector']}")
         
-        with st.form("form_transmision", clear_on_submit=True):
-            # Traemos los datos del operario ADENTRO del formulario para asegurar su captura
-            c_hdr1, c_hdr2 = st.columns([1, 2])
-            with c_hdr1:
-                contador = st.text_input("Nombre del Operario:", placeholder="Ej: Joel Suarez").strip()
-            with c_hdr2:
-                comentarios_gen = st.text_input("Observaciones de Inicio (Opcional):", placeholder="Ej: Pasillo 4").strip()
-            
-            st.markdown("---")
+        # Eliminamos clear_on_submit=True del form para controlar el limpiado de forma manual y selectiva
+        with st.form("form_transmision"):
+            st.markdown("##### Datos del Conteo Físico")
             col1, col2, col3 = st.columns(3)
             with col1:
                 cantidad = st.number_input("Cantidad Física Contada (Solo Enteros):", min_value=0, step=1, value=0)
@@ -90,12 +102,14 @@ if modo == "Operario (Carga de Conteo)":
             with col3:
                 etiqueta = st.text_input("Número de Etiqueta (Mandatorio):").strip()
                 
-            obs = st.text_area("Notas / Desvíos específicos:").strip()
+            obs = st.text_area("Notas / Desvíos específicos del material:").strip()
             
             if st.form_submit_button("🚀 Transmitir Registro a la Nube"):
-                # Validación estricta con strings limpios
-                if not contador or not lote or not etiqueta:
-                    st.error("Error: Nombre, Lote y Etiqueta son campos mandatorios obligatorios.")
+                # Validación usando la variable persistente 'contador' sacada de arriba
+                if not contador:
+                    st.error("Error: Debe completar el 'Nombre del Operario' arriba antes de transmitir.")
+                elif not lote or not etiqueta:
+                    st.error("Error: Los campos Lote y Etiqueta son obligatorios para el registro.")
                 else:
                     try:
                         payload = {
@@ -112,6 +126,8 @@ if modo == "Operario (Carga de Conteo)":
                         }
                         supabase.table("conteos_inventario").insert(payload).execute()
                         st.success(f"✓ Conteo de {item['Material']} subido con éxito.")
+                        
+                        # Limpiar solo la selección del ítem actual para forzar nueva búsqueda
                         del st.session_state.item_seleccionado
                         st.rerun()
                     except Exception as e:
