@@ -198,7 +198,7 @@ else:
         if filt_user: df_realtime = df_realtime[df_realtime["contador"].isin(filt_user)]
         if filt_tipo: df_realtime = df_realtime[df_realtime["tipo"].isin(filt_tipo)]
             
-        order_cols = ["timestamp", "contador", "material", "descripcion", "sector", "cantidad_contada", "lote", "numero_etiqueta", "observations", "tipo", "foto_url"]
+        order_cols = ["timestamp", "contador", "comentarios_generales", "material", "descripcion", "sector", "cantidad_contada", "lote", "numero_etiqueta", "observaciones", "tipo", "foto_url"]
         df_final = df_realtime[[c for c in order_cols if c in df_realtime.columns]]
         
         if "cantidad_contada" in df_final.columns:
