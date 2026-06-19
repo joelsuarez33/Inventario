@@ -101,7 +101,11 @@ if modo == "Operario (Carga de Conteo)":
                 lote = st.text_input("Número de Lote (Mandatorio):").strip()
             with col3:
                 etiqueta = st.text_input("Número de Etiqueta (Mandatorio):").strip()
-                
+            metodo_conteo = st.selectbox(
+                "Método de Conteo (Mandatorio):",
+                options=["", "Manual", "Cajón cerrado", "Balanza"],
+                index=0
+            )                
             obs = st.text_area("Notas / Desvíos específicos del material:").strip()
             
             if st.form_submit_button("🚀 Transmitir Registro a la Nube"):
@@ -110,6 +114,8 @@ if modo == "Operario (Carga de Conteo)":
                     st.error("Error: Debe completar el 'Nombre del Operario' arriba antes de transmitir.")
                 elif not lote or not etiqueta:
                     st.error("Error: Los campos Lote y Etiqueta son obligatorios para el registro.")
+                elif not metodo_conteo:
+                    st.error("Error: Debe seleccionar un 'Método de Conteo'.")
                 else:
                     try:
                         payload = {
@@ -121,6 +127,7 @@ if modo == "Operario (Carga de Conteo)":
                             "cantidad_contada": int(cantidad),
                             "lote": str(lote),
                             "numero_etiqueta": str(etiqueta),
+                            "metodo_conteo": str(metodo_conteo),
                             "observaciones": str(obs),
                             "tipo": "CONTEO"
                         }
@@ -198,7 +205,7 @@ else:
         if filt_user: df_realtime = df_realtime[df_realtime["contador"].isin(filt_user)]
         if filt_tipo: df_realtime = df_realtime[df_realtime["tipo"].isin(filt_tipo)]
             
-        order_cols = ["timestamp", "contador", "comentarios_generales", "material", "descripcion", "sector", "cantidad_contada", "lote", "numero_etiqueta", "observaciones", "tipo", "foto_url"]
+        order_cols = ["timestamp", "contador", "comentarios_generales", "material", "descripcion", "sector", "cantidad_contada", "lote", "numero_etiqueta", "metodo_conteo", "observaciones", "tipo", "foto_url"]
         df_final = df_realtime[[c for c in order_cols if c in df_realtime.columns]]
         
         if "cantidad_contada" in df_final.columns:
