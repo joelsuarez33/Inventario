@@ -27,16 +27,27 @@ except Exception as e:
 @st.cache_data(ttl=600)
 def cargar_maestro():
     try:
+        # Intentamos obtener los datos
         res = supabase.table("maestro_inventario").select("*").execute()
-        if res.data:
-            df = pd.DataFrame(res.data)
-            df.columns = [c.capitalize() for c in df.columns]
-            # SOLUCIÓN CRÍTICA 1: Eliminar cualquier NaN del dataframe transformándolo en string vacío
-            df = df.fillna("")
-            return df
-        return pd.DataFrame(columns=["Material", "Descripcion", "Sector", "Cantidad_teorica"])
+        
+        # Si res.data es None o está vacío, queremos saber qué pasó
+        if res.data is None:
+            st.error("Supabase devolvió datos vacíos. Verifica que la tabla tenga registros.")
+            return pd.DataFrame(columns=["Material", "Descripcion", "Sector", "Cantidad_teorica"])
+        
+        df = pd.DataFrame(res.data)
+        
+        if df.empty:
+            st.warning("La tabla maestro_inventario está vacía (0 registros).")
+            return pd.DataFrame(columns=["Material", "Descripcion", "Sector", "Cantidad_teorica"])
+
+        df.columns = [c.capitalize() for c in df.columns]
+        df = df.fillna("")
+        return df
+
     except Exception as e:
-        st.error(f"Error al mapear el maestro_inventario: {e}")
+        # AQUÍ ESTÁ EL CAMBIO: Mostramos el error real en la UI
+        st.error(f"Error técnico detallado: {str(e)}")
         return pd.DataFrame(columns=["Material", "Descripcion", "Sector", "Cantidad_teorica"])
 
 df_maestro = cargar_maestro()
