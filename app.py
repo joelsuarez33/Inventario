@@ -73,7 +73,7 @@ if modo == "Operario (Carga de Conteo)":
         # Al asignar key="op_nombre", el valor queda fijo en memoria
         contador = st.text_input("Nombre del Operario:", key="op_nombre", placeholder="Ej: Joel Suarez").strip()
     with c_hdr2:
-        comentarios_gen = st.text_input("Observaciones de Inicio / Sector (Opcional):", key="op_comentarios", placeholder="Ej: Pasillo 4").strip()
+        comentarios_gen = st.text_input("Sector (Obligatorio):", key="op_comentarios", placeholder="Ej: Almacén A / Pasillo 4").strip()
     
     st.markdown("---")
     
@@ -123,6 +123,8 @@ if modo == "Operario (Carga de Conteo)":
                 # Validación usando la variable persistente 'contador' sacada de arriba
                 if not contador:
                     st.error("Error: Debe completar el 'Nombre del Operario' arriba antes de transmitir.")
+                elif not comentarios_gen:
+                    st.error("Error: Debe completar el campo 'Sector' antes de transmitir.")
                 elif not lote or not etiqueta:
                     st.error("Error: Los campos Lote y Etiqueta son obligatorios para el registro.")
                 elif not metodo_conteo:
@@ -158,7 +160,7 @@ if modo == "Operario (Carga de Conteo)":
         foto = st.file_uploader("Captura de cámara / Evidencia:", type=["png", "jpg", "jpeg"])
         
         if st.form_submit_button("Guardar Alerta de No Encontrado"):
-            if not contador or not desc_no or not foto:
+            if not contador or not comentarios_gen or not desc_no or not foto:
                 st.error("Error: Todos los campos son obligatorios.")
             else:
                 try:
