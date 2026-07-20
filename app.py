@@ -157,34 +157,27 @@ if modo == "Operario (Carga de Conteo)":
     st.subheader("⚠️ Registro de Artículo No Encontrado")
     with st.form("form_no_maestro", clear_on_submit=True):
         desc_no = st.text_area("Describa el material hallado:").strip()
-        foto = st.file_uploader("Captura de cámara / Evidencia:", type=["png", "jpg", "jpeg"])
-        
+        st.info("📸 Tomar foto para documentar y enviar luego a la coordinación de inventario.")
+
         if st.form_submit_button("Guardar Alerta de No Encontrado"):
-            if not contador or not comentarios_gen or not desc_no or not foto:
+            if not contador or not comentarios_gen or not desc_no:
                 st.error("Error: Todos los campos son obligatorios.")
             else:
                 try:
-                    ext = foto.name.split(".")[-1]
-                    uuid_name = f"{uuid.uuid4()}.{ext}"
-                    supabase.storage.from_("fotos").upload(uuid_name, foto.read(), {"content-type": f"image/{ext}"})
-                    foto_url = supabase.storage.from_("fotos").get_public_url(uuid_name)
-                    
                     payload = {
-                    "contador": str(contador), 
-                    "comentarios_generales": str(comentarios_gen) if comentarios_gen else "",
-                    "material": "N/A", 
-                    "descripcion": "No encontrado", 
-                    "sector": "N/A",
-                    "cantidad_contada": 0, 
-                    "lote": "N/A", 
-                    "numero_etiqueta": "N/A",
-                    "observaciones": str(desc_no),  # <--- CORREGIDO ACÁ
-                    "tipo": "NO_ENCONTRADO", 
-                    "foto_url": str(foto_url)
-                }
+                        "contador": str(contador),
+                        "comentarios_generales": str(comentarios_gen),
+                        "material": "N/A",
+                        "descripcion": "No encontrado",
+                        "sector": "N/A",
+                        "cantidad_contada": 0,
+                        "lote": "N/A",
+                        "numero_etiqueta": "N/A",
+                        "observaciones": str(desc_no),
+                        "tipo": "NO_ENCONTRADO"
+                    }
                     supabase.table("conteos_inventario").insert(payload).execute()
                     st.success("✓ Reporte enviado a la nube.")
-                    st.rerun()
                 except Exception as e:
                     st.error(f"Error: {e}")
 
