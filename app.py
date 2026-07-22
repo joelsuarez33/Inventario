@@ -1,9 +1,14 @@
-import streamlit as st
-import pandas as pd
-from supabase import create_client, Client
-import uuid
+import re
 
-st.set_page_config(page_title="Sistema de Inventario Daimler", layout="wide", initial_sidebar_state="expanded")
+import pandas as pd
+import streamlit as st
+from supabase import Client, create_client
+
+st.set_page_config(
+    page_title="Sistema de Inventario Daimler",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 # --- CREDENCIALES DE SUPABASE DESDE SECRETS ---
 try:
@@ -13,9 +18,11 @@ except KeyError:
     st.error("Error: Las credenciales 'SUPABASE_URL' y 'SUPABASE_KEY' no están configuradas en los Secrets de Streamlit.")
     st.stop()
 
+
 @st.cache_resource
 def init_supabase() -> Client:
     return create_client(SUPABASE_URL, SUPABASE_KEY)
+
 
 try:
     supabase = init_supabase()
@@ -23,34 +30,85 @@ except Exception as e:
     st.error(f"Error de conexión a la base de datos: {e}")
     st.stop()
 
-# --- CARGA DEL MAESTRO DESDE SUPABASE ---
-@st.cache_data(ttl=600)
-def cargar_maestro():
+# Debe ser <= "Max Rows" en Settings > API del proyecto (default: 1000).
+# No requiere modificar la configuración de Supabase.
+PAGE_SIZE = 1000
+
+COLS_MAESTRO = ["Material", "Descripcion", "Sector", "Cantidad_teorica"]
+
+
+# =====================================================================
+# BÚSQUEDA SERVER-SIDE DEL MAESTRO
+# Reemplaza la carga completa de la tabla: el filtrado lo hace Postgres
+# sobre las 100k filas. Requiere índices pg_trgm (ver SQL adjunto).
+# =====================================================================
+def _sanitize_ilike(term: str) -> str:
+    # "," y "()" son reservados en la sintaxis de or_() de PostgREST.
+    # "%" se remueve para que el usuario no inyecte wildcards propios.
+    return re.sub(r"[,()%]", "", term).strip()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _query_maestro(q: str, limit: int) -> list:
+    # Cacheado por término 5 min: búsquedas repetidas entre los 15
+    # operarios no golpean la DB. Excepciones no se cachean.
+    res = (
+        supabase.table("maestro_inventario")
+        .select("*")
+        .or_(f"material.ilike.%{q}%,descripcion.ilike.%{q}%,sector.ilike.%{q}%")
+        .limit(limit)
+        .execute()
+    )
+    return res.data or []
+
+
+def buscar_material(query: str, limit: int = 5) -> pd.DataFrame:
+    q = _sanitize_ilike(query)
+    if len(q) < 2:
+        return pd.DataFrame(columns=COLS_MAESTRO)
     try:
-        # Intentamos obtener los datos
-        res = supabase.table("maestro_inventario").select("*").execute()
-        
-        # Si res.data es None o está vacío, queremos saber qué pasó
-        if res.data is None:
-            st.error("Supabase devolvió datos vacíos. Verifica que la tabla tenga registros.")
-            return pd.DataFrame(columns=["Material", "Descripcion", "Sector", "Cantidad_teorica"])
-        
-        df = pd.DataFrame(res.data)
-        
-        if df.empty:
-            st.warning("La tabla maestro_inventario está vacía (0 registros).")
-            return pd.DataFrame(columns=["Material", "Descripcion", "Sector", "Cantidad_teorica"])
-
-        df.columns = [c.capitalize() for c in df.columns]
-        df = df.fillna("")
-        return df
-
+        rows = _query_maestro(q, limit)
     except Exception as e:
-        # AQUÍ ESTÁ EL CAMBIO: Mostramos el error real en la UI
-        st.error(f"Error técnico detallado: {str(e)}")
-        return pd.DataFrame(columns=["Material", "Descripcion", "Sector", "Cantidad_teorica"])
+        st.error(f"Error técnico en la búsqueda: {e}")
+        return pd.DataFrame(columns=COLS_MAESTRO)
 
-df_maestro = cargar_maestro()
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return pd.DataFrame(columns=COLS_MAESTRO)
+    df.columns = [c.capitalize() for c in df.columns]
+    return df.fillna("")
+
+
+# =====================================================================
+# CARGA PAGINADA DE CONTEOS (módulo Supervisor)
+# select("*") sin range() truncaba en 1000 filas: mismo bug que el
+# maestro. Con 15 operarios el histórico supera 1000 rápido y la
+# consola + el CSV descargaban datos incompletos.
+# =====================================================================
+@st.cache_data(ttl=30, show_spinner="Cargando registros...")
+def cargar_conteos() -> pd.DataFrame:
+    all_rows, start = [], 0
+    while True:
+        res = (
+            supabase.table("conteos_inventario")
+            .select("*")
+            .order("timestamp", desc=True)
+            .range(start, start + PAGE_SIZE - 1)
+            .execute()
+        )
+        chunk = res.data or []
+        all_rows.extend(chunk)
+        if len(chunk) < PAGE_SIZE:
+            break
+        start += PAGE_SIZE
+
+    df = pd.DataFrame(all_rows)
+    # Inserts concurrentes durante la paginación pueden duplicar filas
+    # entre páginas: dedupe por PK.
+    if not df.empty and "id" in df.columns:
+        df = df.drop_duplicates(subset="id")
+    return df
+
 
 # --- INTERFAZ DE USUARIO ---
 modo = st.sidebar.radio("Módulo de Trabajo:", ["Operario (Carga de Conteo)", "Supervisor (Monitoreo y Descarga)"])
@@ -58,41 +116,38 @@ modo = st.sidebar.radio("Módulo de Trabajo:", ["Operario (Carga de Conteo)", "S
 if modo == "Operario (Carga de Conteo)":
     st.title("📱 Captura de Inventario en Campo")
     st.markdown("---")
-    
+
     # --- BLOQUE FIJO: Datos del Operario y Sector (Persistentes) ---
     st.subheader("👤 Datos de Control (Fijos para la sesión)")
-    
-    # Inicializar las variables en session_state si no existen
+
     if "op_nombre" not in st.session_state:
         st.session_state.op_nombre = ""
     if "op_comentarios" not in st.session_state:
         st.session_state.op_comentarios = ""
-        
+
     c_hdr1, c_hdr2 = st.columns([1, 2])
     with c_hdr1:
-        # Al asignar key="op_nombre", el valor queda fijo en memoria
         contador = st.text_input("Nombre del Operario:", key="op_nombre", placeholder="Ej: Joel Suarez").strip()
     with c_hdr2:
         comentarios_gen = st.text_input("Sector (Obligatorio):", key="op_comentarios", placeholder="Ej: Almacén A / Pasillo 4").strip()
-    
+
     st.markdown("---")
-    
-    # Buscador dinámico (reactivo)
-    buscar = st.text_input("🔍 Buscar por Material, Descripción o Sector (Escriba para filtrar):", value="")
-    
+
+    # Buscador server-side: la query viaja a Postgres, vuelven <= 5 filas
+    buscar = st.text_input("🔍 Buscar por Material, Descripción o Sector (escriba y presione Enter):", value="")
+
     if buscar:
-        buscar_clean = buscar.strip().lower()
-        filtrado = df_maestro[
-            df_maestro["Material"].astype(str).str.lower().str.contains(buscar_clean) |
-            df_maestro["Descripcion"].astype(str).str.lower().str.contains(buscar_clean) |
-            df_maestro["Sector"].astype(str).str.lower().str.contains(buscar_clean)
-        ].head(5)
-        
+        filtrado = buscar_material(buscar)
         if not filtrado.empty:
             st.write("**Coincidencias en tiempo real:**")
-            for idx, row in filtrado.iterrows():
-                if st.button(f"📦 {row['Material']} | {row['Descripcion']} | Sector: {row['Sector']}", key=f"item_{idx}"):
+            for idx, row in filtrado.reset_index(drop=True).iterrows():
+                if st.button(
+                    f"📦 {row['Material']} | {row['Descripcion']} | Sector: {row['Sector']}",
+                    key=f"item_{idx}_{row['Material']}",
+                ):
                     st.session_state.item_seleccionado = row.to_dict()
+        elif len(_sanitize_ilike(buscar)) < 2:
+            st.info("Ingrese al menos 2 caracteres para buscar.")
         else:
             st.warning("No se encontraron coincidencias en el maestro.")
 
@@ -101,8 +156,7 @@ if modo == "Operario (Carga de Conteo)":
         item = st.session_state.item_seleccionado
         st.markdown(f"### Artículo Seleccionado: `{item['Material']}`")
         st.info(f"**Descripción:** {item['Descripcion']}  \n**Sector Teórico:** {item['Sector']}")
-        
-        # Eliminamos clear_on_submit=True del form para controlar el limpiado de forma manual y selectiva
+
         with st.form("form_transmision"):
             st.markdown("##### Datos del Conteo Físico")
             col1, col2, col3 = st.columns(3)
@@ -115,12 +169,11 @@ if modo == "Operario (Carga de Conteo)":
             metodo_conteo = st.selectbox(
                 "Método de Conteo (Mandatorio):",
                 options=["", "Manual", "Cajón cerrado", "Balanza"],
-                index=0
-            )                
+                index=0,
+            )
             obs = st.text_area("Notas / Desvíos específicos del material:").strip()
-            
+
             if st.form_submit_button("🚀 Transmitir Registro a la Nube"):
-                # Validación usando la variable persistente 'contador' sacada de arriba
                 if not contador:
                     st.error("Error: Debe completar el 'Nombre del Operario' arriba antes de transmitir.")
                 elif not comentarios_gen:
@@ -142,12 +195,11 @@ if modo == "Operario (Carga de Conteo)":
                             "numero_etiqueta": str(etiqueta),
                             "metodo_conteo": str(metodo_conteo),
                             "observaciones": str(obs),
-                            "tipo": "CONTEO"
+                            "tipo": "CONTEO",
                         }
                         supabase.table("conteos_inventario").insert(payload).execute()
                         st.success(f"✓ Conteo de {item['Material']} subido con éxito.")
-                        
-                        # Limpiar solo la selección del ítem actual para forzar nueva búsqueda
+
                         del st.session_state.item_seleccionado
                         st.rerun()
                     except Exception as e:
@@ -173,8 +225,9 @@ if modo == "Operario (Carga de Conteo)":
                         "cantidad_contada": 0,
                         "lote": "N/A",
                         "numero_etiqueta": "N/A",
+                        "metodo_conteo": "N/A",
                         "observaciones": str(desc_no),
-                        "tipo": "NO_ENCONTRADO"
+                        "tipo": "NO_ENCONTRADO",
                     }
                     supabase.table("conteos_inventario").insert(payload).execute()
                     st.success("✓ Reporte enviado a la nube.")
@@ -183,41 +236,49 @@ if modo == "Operario (Carga de Conteo)":
 
 else:
     # --- MÓDULO SUPERVISOR ---
-    st.title("📊 Consola Central (Tiempo Real)")
+    col_ttl, col_btn = st.columns([5, 1])
+    with col_ttl:
+        st.title("📊 Consola Central (Tiempo Real)")
+    with col_btn:
+        if st.button("🔄 Actualizar"):
+            cargar_conteos.clear()
+            st.rerun()
+
     try:
-        records = supabase.table("conteos_inventario").select("*").order("timestamp", desc=True).execute().data
+        df_realtime = cargar_conteos()
     except Exception as e:
         st.error(f"Error: {e}")
-        records = []
-        
-    if records:
-        df_realtime = pd.DataFrame(records)
+        df_realtime = pd.DataFrame()
+
+    if not df_realtime.empty:
         if "timestamp" in df_realtime.columns:
-            df_realtime["timestamp"] = pd.to_datetime(df_realtime["timestamp"]).dt.strftime('%Y-%m-%d %H:%M:%S')
-            
+            df_realtime["timestamp"] = pd.to_datetime(df_realtime["timestamp"]).dt.strftime("%Y-%m-%d %H:%M:%S")
+
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Registros", len(df_realtime))
         m2.metric("Items Únicos", df_realtime["material"].nunique() if "material" in df_realtime.columns else 0)
         m3.metric("Operadores", df_realtime["contador"].nunique() if "contador" in df_realtime.columns else 0)
-        m4.metric("No Encontrados", len(df_realtime[df_realtime["tipo"]=="NO_ENCONTRADO"]) if "tipo" in df_realtime.columns else 0)
-        
+        m4.metric("No Encontrados", len(df_realtime[df_realtime["tipo"] == "NO_ENCONTRADO"]) if "tipo" in df_realtime.columns else 0)
+
         st.markdown("---")
         f_col1, f_col2 = st.columns(2)
         with f_col1:
             filt_user = st.multiselect("Filtrar Operario:", options=sorted(df_realtime["contador"].unique()))
         with f_col2:
             filt_tipo = st.multiselect("Filtrar Tipo:", options=df_realtime["tipo"].unique(), default=df_realtime["tipo"].unique())
-            
-        if filt_user: df_realtime = df_realtime[df_realtime["contador"].isin(filt_user)]
-        if filt_tipo: df_realtime = df_realtime[df_realtime["tipo"].isin(filt_tipo)]
-            
+
+        if filt_user:
+            df_realtime = df_realtime[df_realtime["contador"].isin(filt_user)]
+        if filt_tipo:
+            df_realtime = df_realtime[df_realtime["tipo"].isin(filt_tipo)]
+
         order_cols = ["timestamp", "contador", "comentarios_generales", "material", "descripcion", "sector", "cantidad_contada", "lote", "numero_etiqueta", "metodo_conteo", "observaciones", "tipo", "foto_url"]
         df_final = df_realtime[[c for c in order_cols if c in df_realtime.columns]]
-        
+
         if "cantidad_contada" in df_final.columns:
             df_final["cantidad_contada"] = df_final["cantidad_contada"].astype(int)
-        
-        csv_bytes = df_final.to_csv(index=False, sep=";", encoding="utf-8-sig").encode('utf-8-sig')
+
+        csv_bytes = df_final.to_csv(index=False, sep=";", encoding="utf-8-sig").encode("utf-8-sig")
         st.download_button(label="🟢 Descargar Consolidado Excel (.csv)", data=csv_bytes, file_name="Inventario_Daimler.csv", mime="text/csv")
         st.dataframe(df_final, use_container_width=True, height=450)
     else:
