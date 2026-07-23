@@ -200,6 +200,10 @@ if modo == "Operario (Carga de Conteo)":
                         supabase.table("conteos_inventario").insert(payload).execute()
                         st.success(f"✓ Conteo de {item['Material']} subido con éxito.")
 
+                        # Registro normal: descarta cualquier etiqueta residual
+                        # tipeada en el bloque "No Encontrado" para no arrastrar
+                        # valores viejos a un reporte posterior.
+                        st.session_state.pop("ne_etiqueta", None)
                         del st.session_state.item_seleccionado
                         st.rerun()
                     except Exception as e:
@@ -209,11 +213,14 @@ if modo == "Operario (Carga de Conteo)":
     st.subheader("⚠️ Registro de Artículo No Encontrado")
     with st.form("form_no_maestro", clear_on_submit=True):
         desc_no = st.text_area("Describa el material hallado:").strip()
+        # Obligatorio SOLO para este formulario. El conteo normal usa su
+        # propia etiqueta dentro de form_transmision; este campo no participa.
+        etiqueta_no = st.text_input("Número de Etiqueta (Mandatorio):", key="ne_etiqueta").strip()
         st.info("📸 Tomar foto para documentar y enviar luego a la coordinación de inventario.")
 
         if st.form_submit_button("Guardar Alerta de No Encontrado"):
-            if not contador or not comentarios_gen or not desc_no:
-                st.error("Error: Todos los campos son obligatorios.")
+            if not contador or not comentarios_gen or not desc_no or not etiqueta_no:
+                st.error("Error: Operario, Sector, Descripción y Número de Etiqueta son obligatorios.")
             else:
                 try:
                     payload = {
@@ -224,7 +231,7 @@ if modo == "Operario (Carga de Conteo)":
                         "sector": "N/A",
                         "cantidad_contada": 0,
                         "lote": "N/A",
-                        "numero_etiqueta": "N/A",
+                        "numero_etiqueta": str(etiqueta_no),
                         "metodo_conteo": "N/A",
                         "observaciones": str(desc_no),
                         "tipo": "NO_ENCONTRADO",
