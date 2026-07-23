@@ -133,8 +133,16 @@ if modo == "Operario (Carga de Conteo)":
 
     st.markdown("---")
 
+    # Reset diferido post-transmisión: el buscador está ARRIBA del form, o
+    # sea ya instanciado cuando corre el submit — asignar su state en ese
+    # mismo run lanza StreamlitAPIException. Se marca un flag en el submit
+    # y se limpia acá, antes de instanciar los widgets en el rerun.
+    if st.session_state.pop("post_transmision_reset", False):
+        st.session_state.buscar_material = ""
+        st.session_state.pop("ne_etiqueta", None)
+
     # Buscador server-side: la query viaja a Postgres, vuelven <= 5 filas
-    buscar = st.text_input("🔍 Buscar por Material, Descripción o Sector (escriba y presione Enter):", value="")
+    buscar = st.text_input("🔍 Buscar por Material, Descripción o Sector (escriba y presione Enter):", key="buscar_material")
 
     if buscar:
         filtrado = buscar_material(buscar)
@@ -200,10 +208,9 @@ if modo == "Operario (Carga de Conteo)":
                         supabase.table("conteos_inventario").insert(payload).execute()
                         st.success(f"✓ Conteo de {item['Material']} subido con éxito.")
 
-                        # Registro normal: descarta cualquier etiqueta residual
-                        # tipeada en el bloque "No Encontrado" para no arrastrar
-                        # valores viejos a un reporte posterior.
-                        st.session_state.pop("ne_etiqueta", None)
+                        # Marca el reset diferido: buscador + etiqueta residual
+                        # de "No Encontrado" se limpian al inicio del rerun.
+                        st.session_state["post_transmision_reset"] = True
                         del st.session_state.item_seleccionado
                         st.rerun()
                     except Exception as e:
