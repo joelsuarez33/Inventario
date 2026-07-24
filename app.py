@@ -139,7 +139,8 @@ if modo == "Operario (Carga de Conteo)":
     # y se limpia acá, antes de instanciar los widgets en el rerun.
     if st.session_state.pop("post_transmision_reset", False):
         st.session_state.buscar_material = ""
-        st.session_state.pop("ne_etiqueta", None)
+        for k in ("ne_material", "ne_cantidad", "ne_etiqueta"):
+            st.session_state.pop(k, None)
 
     # Buscador server-side: la query viaja a Postgres, vuelven <= 5 filas
     buscar = st.text_input("🔍 Buscar por Material, Descripción o Sector (escriba y presione Enter):", key="buscar_material")
@@ -208,7 +209,7 @@ if modo == "Operario (Carga de Conteo)":
                         supabase.table("conteos_inventario").insert(payload).execute()
                         st.success(f"✓ Conteo de {item['Material']} subido con éxito.")
 
-                        # Marca el reset diferido: buscador + etiqueta residual
+                        # Marca el reset diferido: buscador + campos residuales
                         # de "No Encontrado" se limpian al inicio del rerun.
                         st.session_state["post_transmision_reset"] = True
                         del st.session_state.item_seleccionado
@@ -219,24 +220,33 @@ if modo == "Operario (Carga de Conteo)":
     st.markdown("---")
     st.subheader("⚠️ Registro de Artículo No Encontrado")
     with st.form("form_no_maestro", clear_on_submit=True):
+        # Campos obligatorios SOLO para este formulario. El conteo normal
+        # usa sus propios widgets dentro de form_transmision; estos no
+        # participan y se descartan en el reset diferido post-transmisión.
+        nc1, nc2, nc3 = st.columns(3)
+        with nc1:
+            material_no = st.text_input("Material (texto libre, Mandatorio):", key="ne_material").strip()
+        with nc2:
+            cantidad_no = st.number_input("Cantidad Física Contada (Solo Enteros):", min_value=0, step=1, value=0, key="ne_cantidad")
+        with nc3:
+            etiqueta_no = st.text_input("Número de Etiqueta (Mandatorio):", key="ne_etiqueta").strip()
         desc_no = st.text_area("Describa el material hallado:").strip()
-        # Obligatorio SOLO para este formulario. El conteo normal usa su
-        # propia etiqueta dentro de form_transmision; este campo no participa.
-        etiqueta_no = st.text_input("Número de Etiqueta (Mandatorio):", key="ne_etiqueta").strip()
         st.info("📸 Tomar foto para documentar y enviar luego a la coordinación de inventario.")
 
         if st.form_submit_button("Guardar Alerta de No Encontrado"):
-            if not contador or not comentarios_gen or not desc_no or not etiqueta_no:
-                st.error("Error: Operario, Sector, Descripción y Número de Etiqueta son obligatorios.")
+            if not contador or not comentarios_gen or not material_no or not desc_no or not etiqueta_no:
+                st.error("Error: Operario, Sector, Material, Descripción y Número de Etiqueta son obligatorios.")
+            elif cantidad_no <= 0:
+                st.error("Error: La Cantidad Física Contada debe ser mayor a 0.")
             else:
                 try:
                     payload = {
                         "contador": str(contador),
                         "comentarios_generales": str(comentarios_gen),
-                        "material": "N/A",
+                        "material": str(material_no),
                         "descripcion": "No encontrado",
                         "sector": "N/A",
-                        "cantidad_contada": 0,
+                        "cantidad_contada": int(cantidad_no),
                         "lote": "N/A",
                         "numero_etiqueta": str(etiqueta_no),
                         "metodo_conteo": "N/A",
