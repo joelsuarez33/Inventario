@@ -1,17 +1,28 @@
-   name: Supabase keep-alive
-   on:
-     schedule:
-       - cron: '0 12 */2 * *'
-     workflow_dispatch:
-   jobs:
-     ping:
-       runs-on: ubuntu-latest
-       steps:
-         - name: Ping
-           run: |
-             curl -sf "$SUPABASE_URL/rest/v1/maestro_inventario?select=*&limit=1" \
-               -H "apikey: $SUPABASE_ANON_KEY" \
-               -H "Authorization: Bearer $SUPABASE_ANON_KEY"
-           env:
-             SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-             SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+name: Supabase keep-alive
+on:
+  schedule:
+    - cron: '0 12 * * *'
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping (lectura)
+        run: |
+          curl -sf "$SUPABASE_URL/rest/v1/maestro_inventario?select=*&limit=1" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      - name: Ping (escritura)
+        run: |
+          curl -sf -X POST "$SUPABASE_URL/rest/v1/keep_alive" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            -d '{}'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
